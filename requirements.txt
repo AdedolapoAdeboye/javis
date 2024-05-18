@@ -1,0 +1,4 @@
+Python v3
+kivy
+buildozer
+clang
