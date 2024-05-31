@@ -1,3 +1,8 @@
+import os
+import firebase_admin
+from firebase_admin import credentials, firestore, storage
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -9,6 +14,15 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.popup import Popup
 from kivy.uix.contextmenu import ContextMenu, ContextMenuItem
 from kivy.lang import Builder
+from kivy.uix.filechooser import FileChooserIconView
+
+# Initialize Firebase
+cred = credentials.Certificate('path/to/your/GoogleService-Info.plist')
+firebase_admin.initialize_app(cred, {
+    'storageBucket': 'your-project-id.appspot.com'
+})
+db = firestore.client()
+bucket = storage.bucket()
 
 KV = '''
 <RootWidget>:
@@ -62,6 +76,20 @@ KV = '''
             height: '48dp'
             pos_hint: {'x': 0.2, 'y': 0.85}
             on_text: app.change_security(self.text)
+
+        Button:
+            text: 'Save to Cloud'
+            size_hint: 0.6, None
+            height: '48dp'
+            pos_hint: {'x': 0.2, 'y': 0.15}
+            on_release: app.save_to_cloud()
+
+        Button:
+            text: 'Export as PDF'
+            size_hint: 0.6, None
+            height: '48dp'
+            pos_hint: {'x': 0.2, 'y': 0.05}
+            on_release: app.export_to_pdf()
 '''
 
 class RootWidget(BoxLayout):
@@ -241,6 +269,34 @@ class ToDoApp(App):
     def mark_task_done(self, task_item):
         task_item.color = (0, 1, 0, 1)  # Mark the task as done by changing its color to green
         task_item.text = f"[Done] {task_item.text}"
+
+    def save_to_cloud(self):
+        task_list = self.root.ids.task_list
+        tasks = [child.text for child in task_list.children if isinstance(child, Label)]
+        task_data = {'tasks': tasks}
+        db.collection('todos').document('my_todo_list').set(task_data)
+        self.show_error_popup('Tasks saved to cloud!')
+
+    def export_to_pdf(self):
+        task_list = self.root.ids.task_list
+        tasks = [child.text for child in task_list.children if isinstance(child, Label)]
+        
+        filechooser = FileChooserIconView()
+        popup = Popup(title='Select Save Location', content=filechooser, size_hint=(0.9, 0.9))
+        filechooser.bind(on_submit=lambda obj, selection, touch: self.create_pdf(selection[0], tasks))
+        popup.open()
+
+    def create_pdf(self, filepath, tasks):
+        pdf = canvas.Canvas(filepath, pagesize=letter)
+        width, height = letter
+
+        pdf.drawString(100, height - 100, "To-Do List")
+
+        for i, task in enumerate(tasks):
+            pdf.drawString(100, height - 130 - i * 20, task)
+
+        pdf.save()
+        self.show_error_popup('Tasks exported to PDF!')
 
 if __name__ == '__main__':
     ToDoApp().run()

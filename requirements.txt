@@ -1,4 +1,2 @@
-Python v3
-kivy
-buildozer
-clang
+firebase-admin==6.1.0
+reportlab==3.6.12
