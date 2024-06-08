@@ -220,7 +220,7 @@ class ToDoApp(App):
 
     def authenticate_face_id(self):
         # Simulating Face ID, real implementation would use appropriate API
-        self.show_error_popup('Face ID Authentication is not supported yet.')
+        self.show_error_popup('Face ID Authentication not yet supported.')
 
     def authenticate_pin(self):
         content = BoxLayout(orientation='vertical')
