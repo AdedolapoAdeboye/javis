@@ -1,30 +1,73 @@
 import kivy
-kivy.require('2.0.0')
-
+kivy.require('1.11.1')
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.scrollview import ScrollView
-from kivy.uix.popup import Popup
-from kivy.uix.contextmenu import ContextMenu, ContextMenuItem
 from kivy.uix.spinner import Spinner
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.popup import Popup
 from kivy.lang import Builder
+from plyer import fingerprint
+from kivy.uix.screenmanager import ScreenManager, Screen
+import firebase_admin
+from firebase_admin import credentials, firestore
+import pyrebase
 
-from firebase_admin import credentials, firestore, initialize_app
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-
-import os
-
-# Firebase initialization
-cred = credentials.Certificate("path/to/your/google-services.json")
-initialize_app(cred)
+# Initialize Firebase
+cred = credentials.Certificate('javis.json')
+firebase_admin.initialize_app(cred)
 db = firestore.client()
 
+config = {
+    "apiKey": "your-api-key",
+    "authDomain": "your-app.firebaseapp.com",
+    "databaseURL": "https://your-app.firebaseio.com",
+    "storageBucket": "your-app.appspot.com",
+}
+
+firebase = pyrebase.initialize_app(config)
+auth = firebase.auth()
+
 KV = '''
+<LoginScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 10
+        spacing: 10
+
+        Label:
+            text: 'Welcome to Javis'
+            font_size: 32
+
+        TextInput:
+            id: email
+            hint_text: 'Email'
+            multiline: False
+
+        TextInput:
+            id: password
+            hint_text: 'Password'
+            password: True
+            multiline: False
+
+        Button:
+            text: 'Login'
+            on_release: app.login(email.text, password.text)
+
+        Button:
+            text: 'Sign Up'
+            on_release: app.signup(email.text, password.text)
+
+        Label:
+            text: 'OR'
+
+        Button:
+            text: 'Login with Google'
+            on_release: app.login_with_google()
+
 <RootWidget>:
     FloatLayout:
         canvas.before:
@@ -58,7 +101,7 @@ KV = '''
             size_hint: None, None
             size: '56dp', '56dp'
             pos_hint: {'x': 0.8, 'y': 0.25}
-            background_normal: 'icons/add.png'
+            background_color: app.theme_colors[app.current_theme]['button_background']
             on_release: app.add_task()
 
         Spinner:
@@ -71,28 +114,17 @@ KV = '''
 
         Spinner:
             text: 'Security'
-            values: ['None', 'PIN', 'Face ID']
+            values: ['None', 'PIN', 'Fingerprint', 'Face ID']
             size_hint: 0.6, None
             height: '48dp'
             pos_hint: {'x': 0.2, 'y': 0.85}
             on_text: app.change_security(self.text)
-
-        Button:
-            text: 'Save to Cloud'
-            size_hint: 0.6, None
-            height: '48dp'
-            pos_hint: {'x': 0.2, 'y': 0.15}
-            on_release: app.save_to_cloud()
-
-        Button:
-            text: 'Export to PDF'
-            size_hint: 0.6, None
-            height: '48dp'
-            pos_hint: {'x': 0.2, 'y': 0.05}
-            on_release: app.export_to_pdf()
 '''
 
 class RootWidget(BoxLayout):
+    pass
+
+class LoginScreen(Screen):
     pass
 
 class ToDoApp(App):
@@ -156,7 +188,34 @@ class ToDoApp(App):
         self.title = "Javis"
         Builder.load_string(KV)
         self.check_security()
-        return RootWidget()
+
+        self.screen_manager = ScreenManager()
+
+        self.login_screen = LoginScreen(name='login')
+        self.root_widget = RootWidget(name='root')
+
+        self.screen_manager.add_widget(self.login_screen)
+        self.screen_manager.add_widget(self.root_widget)
+
+        return self.screen_manager
+
+    def login(self, email, password):
+        try:
+            user = auth.sign_in_with_email_and_password(email, password)
+            self.screen_manager.current = 'root'
+        except:
+            self.show_error_popup('Login Failed')
+
+    def signup(self, email, password):
+        try:
+            user = auth.create_user_with_email_and_password(email, password)
+            self.screen_manager.current = 'root'
+        except:
+            self.show_error_popup('Sign Up Failed')
+
+    def login_with_google(self):
+        # Google login is more complex and requires redirect and handling with OAuth 2.0
+        self.show_error_popup('Google Login is not supported yet.')
 
     def add_task(self):
         task_input = self.root.ids.task_input
@@ -172,6 +231,8 @@ class ToDoApp(App):
             task_item.bind(on_touch_down=self.show_context_menu)
             task_list.add_widget(task_item)
             task_input.text = ''
+            # Add task to Firestore
+            add_data('tasks', task_text, {'task': task_text})
 
     def change_theme(self, theme_name):
         self.current_theme = theme_name
@@ -212,15 +273,24 @@ class ToDoApp(App):
         self.check_security()
 
     def check_security(self):
-        if self.current_security == 'Face ID':
+        if self.current_security == 'Fingerprint':
+            self.authenticate_fingerprint()
+        elif self.current_security == 'Face ID':
             self.authenticate_face_id()
         elif self.current_security == 'PIN':
             self.authenticate_pin()
         # No security does not require authentication
 
+    def authenticate_fingerprint(self):
+        fingerprint.authenticate(callback=self.on_fingerprint_authenticated)
+
+    def on_fingerprint_authenticated(self, state, reason):
+        if not state:
+            self.show_error_popup('Fingerprint Authentication Failed')
+
     def authenticate_face_id(self):
         # Simulating Face ID, real implementation would use appropriate API
-        self.show_error_popup('Face ID Authentication not yet supported.')
+        self.show_error_popup('Face ID Authentication is not supported yet.')
 
     def authenticate_pin(self):
         content = BoxLayout(orientation='vertical')
@@ -244,13 +314,15 @@ class ToDoApp(App):
     def show_context_menu(self, instance, touch):
         if instance.collide_point(*touch.pos) and touch.is_double_tap:
             context_menu = ContextMenu()
-            context_menu.add_widget(ContextMenuItem(text='Delete', icon='icons/delete.png', on_release=lambda x: self.delete_task(instance)))
-            context_menu.add_widget(ContextMenuItem(text='Modify', icon='icons/edit.png', on_release=lambda x: self.modify_task(instance)))
-            context_menu.add_widget(ContextMenuItem(text='Mark as Done', icon='icons/done.png', on_release=lambda x: self.mark_task_done(instance)))
+            context_menu.add_widget(ContextMenuItem(text='Delete', on_release=lambda x: self.delete_task(instance)))
+            context_menu.add_widget(ContextMenuItem(text='Modify', on_release=lambda x: self.modify_task(instance)))
+            context_menu.add_widget(ContextMenuItem(text='Mark as Done', on_release=lambda x: self.mark_task_done(instance)))
             context_menu.open(touch.pos)
 
     def delete_task(self, task_item):
         self.root.ids.task_list.remove_widget(task_item)
+        # Delete task from Firestore
+        db.collection('tasks').document(task_item.text).delete()
 
     def modify_task(self, task_item):
         content = BoxLayout(orientation='vertical')
@@ -264,35 +336,14 @@ class ToDoApp(App):
     def save_modified_task(self, task_item, new_text):
         task_item.text = new_text
         self.root.ids.task_input.text = ''
+        # Update task in Firestore
+        add_data('tasks', new_text, {'task': new_text})
+        db.collection('tasks').document(task_item.text).delete()
         Popup.dismiss()
 
     def mark_task_done(self, task_item):
         task_item.color = (0, 1, 0, 1)  # Mark the task as done by changing its color to green
         task_item.text = f"[Done] {task_item.text}"
-
-    def save_to_cloud(self):
-        task_list = self.root.ids.task_list
-        tasks = [task.text for task in task_list.children if isinstance(task, Label)]
-        doc_ref = db.collection('users').document('user_id').collection('tasks').document('task_list')
-        doc_ref.set({'tasks': tasks})
-        self.show_info_popup('Tasks saved to cloud.')
-
-    def export_to_pdf(self):
-        task_list = self.root.ids.task_list
-        tasks = [task.text for task in task_list.children if isinstance(task, Label)]
-        pdf_path = os.path.join(os.path.expanduser('~'), 'todo_list.pdf')
-        c = canvas.Canvas(pdf_path, pagesize=letter)
-        width, height = letter
-        y = height - 40
-        for task in tasks:
-            c.drawString(30, y, task)
-            y -= 20
-        c.save()
-        self.show_info_popup(f'Tasks exported to {pdf_path}.')
-
-    def show_info_popup(self, message):
-        popup = Popup(title='Info', content=Label(text=message), size_hint=(0.8, 0.4))
-        popup.open()
 
 if __name__ == '__main__':
     ToDoApp().run()
